@@ -1,6 +1,6 @@
 # Kafka Basics in Rust
 
-Small Rust project for learning Kafka fundamentals with real code and integration tests.
+I built this project to learn Kafka fundamentals in Rust, especially topics, partitions, offsets, producers, consumers, and consumer groups through real code and integration tests.
 
 The repository focuses on a single `orders` topic, JSON order events, and the core Kafka behaviors that matter on day one:
 
@@ -66,7 +66,9 @@ Stop Kafka:
 docker compose down
 ```
 
-For the step-by-step local Kafka walkthrough, see [docs/local-kafka.md](docs/local-kafka.md).
+Further reading:
+
+- [docs/cheatsheet.md](docs/cheatsheet.md): quick concept recap
 
 ## Configuration
 
