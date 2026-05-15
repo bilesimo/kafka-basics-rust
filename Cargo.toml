@@ -1,0 +1,12 @@
+[package]
+name = "kafka-basics-rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rdkafka = { version = "0.38", features = ["cmake-build", "tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+toml = "0.8"

@@ -1,0 +1,13 @@
+[kafka]
+broker = "localhost:9092"
+topic = "orders"
+
+[producer]
+message_timeout_ms = 5000
+event_count = 10
+delay_ms = 200
+
+[consumer]
+group_id = "orders-rust-consumer"
+auto_offset_reset = "earliest"
+enable_auto_commit = false
