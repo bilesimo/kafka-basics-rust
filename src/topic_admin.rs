@@ -5,6 +5,7 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::error::RDKafkaErrorCode;
 use rdkafka::util::Timeout;
+use tracing::{debug, info};
 
 use crate::config::{AppConfig, ConfigError};
 use crate::error::KafkaAppError;
@@ -40,6 +41,7 @@ impl TopicAdmin {
         partitions: i32,
         replication_factor: i32,
     ) -> Result<(), KafkaAppError> {
+        info!(topic, partitions, replication_factor, "creating topic");
         let admin = self.admin_client()?;
         let topics = [NewTopic::new(
             topic,
@@ -76,10 +78,15 @@ impl TopicAdmin {
             }
         }
 
+        info!(
+            topic,
+            partitions, replication_factor, "topic create request completed"
+        );
         Ok(())
     }
 
     pub async fn delete_topic(&self, topic: &str) -> Result<(), KafkaAppError> {
+        info!(topic, "deleting topic");
         let admin = self.admin_client()?;
         let results = admin.delete_topics(&[topic], &AdminOptions::new()).await?;
 
@@ -97,10 +104,12 @@ impl TopicAdmin {
             }
         }
 
+        info!(topic, "topic delete request completed");
         Ok(())
     }
 
     pub fn describe_topic(&self, topic: &str) -> Result<TopicDescription, KafkaAppError> {
+        debug!(topic, "describing topic");
         let consumer: BaseConsumer = self.config.kafka_client_config().create()?;
         let metadata =
             consumer.fetch_metadata(Some(topic), Timeout::After(Duration::from_secs(5)))?;
@@ -129,11 +138,20 @@ impl TopicAdmin {
             .max()
             .unwrap_or(0);
 
-        Ok(TopicDescription {
+        let description = TopicDescription {
             name: topic.to_string(),
             partition_count: topic_metadata.partitions().len(),
             replication_factor,
-        })
+        };
+
+        info!(
+            topic,
+            partition_count = description.partition_count,
+            replication_factor = description.replication_factor,
+            "topic metadata loaded"
+        );
+
+        Ok(description)
     }
 
     fn admin_client(&self) -> Result<AdminClient<DefaultClientContext>, KafkaAppError> {

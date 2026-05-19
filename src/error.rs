@@ -1,5 +1,6 @@
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use thiserror::Error;
+use tracing_subscriber::util::TryInitError;
 
 use crate::config::ConfigError;
 
@@ -20,6 +21,10 @@ pub enum KafkaAppError {
     },
     #[error("message payload was not valid UTF-8")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("failed to initialize tracing subscriber")]
+    Tracing(#[source] TryInitError),
+    #[error("invalid log format {0}; expected compact or json")]
+    InvalidLogFormat(String),
     #[error("timed out after collecting {received} of {expected} messages")]
     Timeout { expected: usize, received: usize },
     #[error("topic operation {operation} failed for {topic}: {code:?}")]

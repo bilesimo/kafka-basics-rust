@@ -21,6 +21,7 @@ The library is split into a few small modules:
 - `src/consumer.rs`: Kafka consumer utilities for reading validated order events
 - `src/topic_admin.rs`: topic creation, deletion, and metadata inspection
 - `src/config.rs`: app config loading plus shared Kafka client configuration
+- `src/observability.rs`: tracing subscriber setup for compact or JSON logs
 
 The integration suite in `tests/kafka_experiments.rs` exercises the main learning scenarios:
 
@@ -85,6 +86,31 @@ Current settings cover:
 - Kafka broker and default topic
 - producer timeout and sample event count
 - consumer group defaults and offset reset policy
+
+## Observability
+
+The library now emits structured tracing events for:
+
+- topic creation, deletion, and metadata reads
+- producer sends and delivery reports with topic, partition, and offset
+- consumer reads with topic, partition, offset, and per-record lag
+
+To enable logging in a binary or example, initialize tracing once at startup:
+
+```rust
+use kafka_basics_rust::observability::init_tracing;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_tracing()?;
+    Ok(())
+}
+```
+
+Useful env vars:
+
+- `RUST_LOG=info` to turn logs on
+- `KAFKA_BASICS_LOG_FORMAT=compact` for human-readable logs
+- `KAFKA_BASICS_LOG_FORMAT=json` for machine-readable logs
 
 ## Project Scope
 

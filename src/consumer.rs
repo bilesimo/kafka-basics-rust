@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::Message;
+use rdkafka::util::Timeout;
+use tracing::{debug, info, warn};
 
 use crate::config::{AppConfig, ConfigError};
 use crate::error::KafkaAppError;
@@ -13,6 +15,8 @@ pub struct ConsumedRecord {
     pub partition: i32,
     pub offset: i64,
     pub payload: String,
+    pub high_watermark: Option<i64>,
+    pub consumer_lag: Option<i64>,
     pub event: OrderEvent,
 }
 
@@ -44,9 +48,17 @@ impl OrderConsumer {
     ) -> Result<Vec<ConsumedRecord>, KafkaAppError> {
         let consumer = self.stream_consumer_with_auto_commit(group_id, false)?;
         consumer.subscribe(&[topic])?;
+        info!(topic, group_id, max_messages, commit, "subscribed consumer");
         let records = Self::collect_messages(consumer, max_messages, commit, idle_timeout).await?;
 
         if records.len() < max_messages {
+            warn!(
+                topic,
+                group_id,
+                expected = max_messages,
+                received = records.len(),
+                "consumer stopped before receiving all requested records"
+            );
             return Err(KafkaAppError::Timeout {
                 expected: max_messages,
                 received: records.len(),
@@ -82,7 +94,15 @@ impl OrderConsumer {
         while records.len() < max_messages {
             let message = match tokio::time::timeout(idle_timeout, consumer.recv()).await {
                 Ok(result) => result?,
-                Err(_) => break,
+                Err(_) => {
+                    debug!(
+                        collected = records.len(),
+                        max_messages,
+                        timeout_ms = idle_timeout.as_millis(),
+                        "consumer idle timeout reached"
+                    );
+                    break;
+                }
             };
 
             let key = message
@@ -94,6 +114,24 @@ impl OrderConsumer {
                 .transpose()?
                 .unwrap_or("")
                 .to_string();
+            let high_watermark = match consumer.fetch_watermarks(
+                message.topic(),
+                message.partition(),
+                Timeout::After(Duration::from_secs(1)),
+            ) {
+                Ok((_, high)) => Some(high),
+                Err(error) => {
+                    warn!(
+                        topic = message.topic(),
+                        partition = message.partition(),
+                        offset = message.offset(),
+                        error = %error,
+                        "failed to fetch watermarks for consumed record"
+                    );
+                    None
+                }
+            };
+            let consumer_lag = high_watermark.map(|high| (high - (message.offset() + 1)).max(0));
             let event = serde_json::from_str::<OrderEvent>(&payload).map_err(|source| {
                 KafkaAppError::InvalidOrderEvent {
                     partition: message.partition(),
@@ -107,11 +145,33 @@ impl OrderConsumer {
                 partition: message.partition(),
                 offset: message.offset(),
                 payload,
+                high_watermark,
+                consumer_lag,
                 event,
             });
 
+            if let Some(record) = records.last() {
+                info!(
+                    topic = message.topic(),
+                    key = record.key.as_deref().unwrap_or(""),
+                    partition = record.partition,
+                    offset = record.offset,
+                    high_watermark = ?record.high_watermark,
+                    consumer_lag = ?record.consumer_lag,
+                    order_id = %record.event.order_id,
+                    status = %record.event.status,
+                    "record consumed"
+                );
+            }
+
             if commit {
                 consumer.commit_message(&message, CommitMode::Sync)?;
+                debug!(
+                    topic = message.topic(),
+                    partition = message.partition(),
+                    offset = message.offset(),
+                    "offset committed"
+                );
             }
         }
 

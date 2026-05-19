@@ -411,6 +411,67 @@ async fn consumers_in_different_groups_read_independently() -> Result<(), Box<dy
 }
 
 #[tokio::test]
+async fn consumed_records_include_partition_offset_and_lag_metadata()
+-> Result<(), Box<dyn std::error::Error>> {
+    let admin = TopicAdmin::from_config()?;
+    let producer = OrderProducer::from_config()?;
+    let consumer = OrderConsumer::from_config()?;
+    let topic = create_test_topic(&admin, "lag_metadata_orders", 1).await?;
+
+    let records = vec![
+        RecordToProduce {
+            key: Some("order-1".to_string()),
+            partition: None,
+            event: OrderEvent::new("order-1", "u1", 10.0, "created"),
+        },
+        RecordToProduce {
+            key: Some("order-1".to_string()),
+            partition: None,
+            event: OrderEvent::new("order-1", "u1", 10.0, "paid"),
+        },
+        RecordToProduce {
+            key: Some("order-1".to_string()),
+            partition: None,
+            event: OrderEvent::new("order-1", "u1", 10.0, "shipped"),
+        },
+    ];
+
+    producer.produce_records(&topic, &records).await?;
+
+    let consumed = consumer
+        .consume_n(
+            &topic,
+            &unique_name("lag_metadata_group"),
+            records.len(),
+            false,
+            Duration::from_secs(2),
+        )
+        .await?;
+
+    assert_eq!(consumed.len(), records.len());
+    assert!(
+        consumed
+            .iter()
+            .all(|record| record.high_watermark.is_some())
+    );
+    assert!(consumed.iter().all(|record| record.consumer_lag.is_some()));
+    assert!(consumed.iter().all(|record| {
+        let high_watermark = record
+            .high_watermark
+            .expect("high watermark should be present");
+        high_watermark > record.offset
+    }));
+    assert_eq!(
+        consumed.last().and_then(|record| record.consumer_lag),
+        Some(0)
+    );
+
+    admin.delete_topic(&topic).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn committed_offsets_control_restart_position() -> Result<(), Box<dyn std::error::Error>> {
     let admin = TopicAdmin::from_config()?;
     let producer = OrderProducer::from_config()?;

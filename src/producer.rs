@@ -1,5 +1,6 @@
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use tracing::{debug, info};
 
 use crate::config::{AppConfig, ConfigError};
 use crate::error::KafkaAppError;
@@ -61,12 +62,14 @@ impl OrderProducer {
         topic: &str,
         records: &[RecordToProduce],
     ) -> Result<Vec<ProducedRecord>, KafkaAppError> {
+        info!(topic, record_count = records.len(), "producing records");
         let producer = self.future_producer()?;
         let mut deliveries = Vec::with_capacity(records.len());
 
         for record in records {
             let payload = serde_json::to_string(&record.event)?;
             let mut future_record = FutureRecord::to(topic).payload(&payload);
+            let key = record.key.as_deref().unwrap_or("");
 
             if let Some(key) = record.key.as_deref() {
                 future_record = future_record.key(key);
@@ -75,6 +78,15 @@ impl OrderProducer {
             if let Some(partition) = record.partition {
                 future_record = future_record.partition(partition);
             }
+
+            debug!(
+                topic,
+                key,
+                requested_partition = ?record.partition,
+                order_id = %record.event.order_id,
+                status = %record.event.status,
+                "sending record"
+            );
 
             let delivery = producer.send(future_record, Timeout::Never).await;
 
@@ -86,6 +98,18 @@ impl OrderProducer {
                     event: record.event.clone(),
                 }),
                 Err((error, _)) => return Err(KafkaAppError::Kafka(error)),
+            }
+
+            if let Some(delivery) = deliveries.last() {
+                info!(
+                    topic,
+                    key,
+                    partition = delivery.partition,
+                    offset = delivery.offset,
+                    order_id = %delivery.event.order_id,
+                    status = %delivery.event.status,
+                    "record delivered"
+                );
             }
         }
 
